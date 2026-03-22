@@ -25,18 +25,27 @@ const analyzeToken = async (req, res) => {
     `).get(address.toLowerCase());
 
     if (cached) {
-      return res.json({
-        success: true,
-        cached: true,
-        data: {
-          address,
-          tokenName: cached.token_name,
-          tokenSymbol: cached.token_symbol,
-          riskScore: cached.risk_score,
-          warnings: JSON.parse(cached.warnings),
-          safetyScore: 100 - cached.risk_score
-        }
-      });
+      // If cached data has zero liquidity, skip cache and fetch fresh
+      const cachedWarnings = JSON.parse(cached.warnings || '[]');
+      const hasZeroData = cached.risk_score === 0 && cachedWarnings.length === 0;
+
+      if (!hasZeroData) {
+        return res.json({
+          success: true,
+          cached: true,
+          data: {
+            address,
+            tokenName: cached.token_name,
+            tokenSymbol: cached.token_symbol,
+            riskScore: cached.risk_score,
+            warnings: cachedWarnings,
+            safetyScore: 100 - cached.risk_score,
+            riskLevel: cached.risk_score >= 70 ? 'HIGH RISK' : cached.risk_score >= 40 ? 'MEDIUM RISK' : 'LOW RISK'
+          }
+        });
+      }
+      // If zero data — fall through and fetch fresh
+      console.log('Cached data has zeros — fetching fresh data');
     }
 
     // Fetch all data in parallel — faster than one by one
@@ -65,16 +74,21 @@ const analyzeToken = async (req, res) => {
     const tokenSymbol = pairData?.symbol || tokenInfo?.[0]?.symbol || 'UNKNOWN';
 
     // Save result to database for caching and history
-    db.prepare(`
-      INSERT INTO token_scans (address, risk_score, warnings, token_name, token_symbol)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      address.toLowerCase(),
-      riskResult.riskScore,
-      JSON.stringify(riskResult.warnings),
-      tokenName,
-      tokenSymbol
-    );
+    // Only cache if we got real data from DexScreener
+    if (pairData && pairData.liquidity > 0) {
+      db.prepare(`
+        INSERT INTO token_scans (address, risk_score, warnings, token_name, token_symbol)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        address.toLowerCase(),
+        riskResult.riskScore,
+        JSON.stringify(riskResult.warnings),
+        tokenName,
+        tokenSymbol
+      );
+    } else {
+      console.log('DexScreener returned no data — skipping cache save');
+    }
 
     // Send response back to frontend
     return res.json({

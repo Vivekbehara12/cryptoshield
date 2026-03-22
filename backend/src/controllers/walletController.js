@@ -6,7 +6,6 @@ const analyzeWallet = async (req, res) => {
   try {
     const { address } = req.params;
 
-    // Validate wallet address
     if (!address || address.length !== 42 || !address.startsWith('0x')) {
       return res.status(400).json({
         success: false,
@@ -14,7 +13,7 @@ const analyzeWallet = async (req, res) => {
       });
     }
 
-    // Check cache first
+    // Check cache
     const cached = db.prepare(`
       SELECT * FROM wallet_scans
       WHERE address = ?
@@ -23,33 +22,36 @@ const analyzeWallet = async (req, res) => {
     `).get(address.toLowerCase());
 
     if (cached) {
-      return res.json({
-        success: true,
-        cached: true,
-        data: {
-          address,
-          reputationScore: cached.reputation_score,
-          tokensCreated: cached.tokens_created,
-          warnings: JSON.parse(cached.warnings),
-          safetyScore: 100 - cached.reputation_score
-        }
-      });
+      const cachedWarnings = JSON.parse(cached.warnings || '[]');
+      const hasZeroData = cached.tokens_created === 0 && cachedWarnings.length === 0;
+
+      if (!hasZeroData) {
+        return res.json({
+          success: true,
+          cached: true,
+          data: {
+            address,
+            reputationScore: cached.reputation_score,
+            riskLevel: cached.reputation_score >= 70 ? 'HIGH RISK' : cached.reputation_score >= 40 ? 'MEDIUM RISK' : 'LOW RISK',
+            tokensCreated: cached.tokens_created,
+            warnings: cachedWarnings,
+            safetyScore: 100 - cached.reputation_score
+          }
+        });
+      }
+      console.log('Cached wallet data has zeros — fetching fresh');
     }
 
-    // Fetch wallet transaction history from BSCScan
     const transactions = await getWalletTransactions(address);
 
-    // Run wallet reputation engine
     const reputationResult = calculateWalletReputation({
       transactions: transactions || []
     });
 
-    // Count contract deployments (tokens created by this wallet)
     const tokensCreated = (transactions || []).filter(
       tx => tx.to === '' || tx.to === null
     ).length;
 
-    // Save to database
     db.prepare(`
       INSERT INTO wallet_scans (address, reputation_score, tokens_created, warnings)
       VALUES (?, ?, ?, ?)

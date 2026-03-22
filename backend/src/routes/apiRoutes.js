@@ -55,7 +55,7 @@ router.post('/ai-summary', async (req, res) => {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     const message = await client.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -78,8 +78,13 @@ Give a plain English risk summary. Start with overall verdict, explain key risks
       summary: message.content[0].text
     });
   } catch (error) {
-    console.error('AI summary error:', error.message);
-    return res.status(500).json({ success: false, error: 'Failed to generate AI summary' });
+  console.error('AI summary error:', error.message);
+  console.error('Full error:', JSON.stringify(error));
+  return res.status(500).json({ 
+    success: false, 
+    error: 'Failed to generate AI summary',
+    details: error.message 
+  });
   }
 });
 

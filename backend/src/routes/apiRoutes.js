@@ -51,12 +51,12 @@ router.post('/ai-summary', async (req, res) => {
     const { tokenData } = req.body;
     if (!tokenData) return res.status(400).json({ success: false, error: 'No token data provided' });
 
-    const Anthropic = require('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const Groq = require('groq-sdk');
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1024,
+    const completion = await groq.chat.completions.create({
+      model: 'llama3-8b-8192',
+      max_tokens: 200,
       messages: [{
         role: 'user',
         content: `You are a crypto risk analyst. Analyze this token and give a clear 3-4 sentence summary a non-technical user can understand. Be direct about whether they should invest or avoid.
@@ -69,22 +69,16 @@ Liquidity: $${Number(tokenData.liquidity || 0).toLocaleString()}
 Price: $${tokenData.priceUsd}
 Warnings: ${tokenData.warnings?.join(', ') || 'None'}
 
-Give a plain English risk summary. Start with overall verdict, explain key risks, then give a clear recommendation.`
+Give a plain English risk summary in 3-4 sentences only.`
       }]
     });
 
-    return res.json({
-      success: true,
-      summary: message.content[0].text
-    });
+    const summary = completion.choices[0]?.message?.content || 'Could not generate summary.';
+    return res.json({ success: true, summary });
+
   } catch (error) {
-  console.error('AI summary error:', error.message);
-  console.error('Full error:', JSON.stringify(error));
-  return res.status(500).json({ 
-    success: false, 
-    error: 'Failed to generate AI summary',
-    details: error.message 
-  });
+    console.error('AI summary error:', error.message);
+    return res.status(500).json({ success: false, error: 'Failed to generate summary' });
   }
 });
 

@@ -20,6 +20,15 @@ app.get('/', (req, res) => {
   res.json({ message: 'CryptoShield backend is running!' });
 });
 
+// Keep Render awake — ping every 10 minutes
+setInterval(() => {
+  const https = require('https');
+  https.get('https://cryptoshield-backend-4l7u.onrender.com/api/health', (res) => {
+    console.log('Keep-alive ping:', res.statusCode);
+  }).on('error', () => {});
+}, 10 * 60 * 1000);
+
+
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

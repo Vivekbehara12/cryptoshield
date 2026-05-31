@@ -50,62 +50,63 @@ const getTokenOHLCV = async (tokenAddress, timeframe = '1h') => {
 
     if (!pair) return null;
 
-    const baseSymbol = pair.baseToken?.symbol?.toUpperCase();
-    const quoteSymbol = pair.quoteToken?.symbol?.toUpperCase();
+    const symbol = pair.baseToken?.symbol?.toUpperCase();
+    const pairName = `${symbol}/USDT`;
 
     const intervalMap = { '1h': '1h', '4h': '4h', '1d': '1d' };
     const limitMap = { '1h': 48, '4h': 42, '1d': 30 };
     const interval = intervalMap[timeframe] || '1h';
     const limit = limitMap[timeframe] || 48;
 
-    // Stablecoins that are quote currencies on Binance
     const stablecoins = ['USDT', 'BUSD', 'USDC', 'DAI', 'TUSD'];
-    const isBaseStable = stablecoins.includes(baseSymbol);
+    const isBaseStable = stablecoins.includes(symbol);
 
-    // Build list of pairs to try
     let pairsToTry = [];
-
     if (isBaseStable) {
-      // For stablecoins use quote token as base
-      pairsToTry = [
-        `${quoteSymbol}${baseSymbol}`,
-        `${quoteSymbol}USDT`,
-        `${quoteSymbol}BUSD`,
-        `${baseSymbol}USDC`,
-      ];
+      const quoteSymbol = pair.quoteToken?.symbol?.toUpperCase();
+      pairsToTry = [`${quoteSymbol}USDT`, `${quoteSymbol}BUSD`, `${quoteSymbol}BNB`];
     } else {
-      pairsToTry = [
-        `${baseSymbol}USDT`,
-        `${baseSymbol}BUSD`,
-        `${baseSymbol}BNB`,
-        `${baseSymbol}BTC`,
-        `${baseSymbol}ETH`,
-      ];
+      pairsToTry = [`${symbol}USDT`, `${symbol}BUSD`, `${symbol}BNB`, `${symbol}BTC`, `${symbol}ETH`];
     }
 
     let klines = null;
     let usedPair = '';
 
+    // Try Binance US API first (less restricted)
+    const binanceUrls = [
+      'https://api.binance.us/api/v3/klines',
+      'https://api.binance.com/api/v3/klines',
+      'https://api1.binance.com/api/v3/klines',
+      'https://api2.binance.com/api/v3/klines',
+      'https://api3.binance.com/api/v3/klines',
+    ];
+
     for (const binancePair of pairsToTry) {
-      try {
-        console.log(`Trying Binance pair: ${binancePair}`);
-        const res = await axios.get('https://api.binance.com/api/v3/klines', {
-          params: { symbol: binancePair, interval, limit },
-          timeout: 6000
-        });
-        if (res.data && res.data.length > 0) {
-          klines = res.data;
-          usedPair = binancePair;
-          console.log(`Found data for: ${binancePair}`);
-          break;
+      if (klines) break;
+      for (const baseUrl of binanceUrls) {
+        try {
+          console.log(`Trying ${baseUrl} with ${binancePair}`);
+          const res = await axios.get(baseUrl, {
+            params: { symbol: binancePair, interval, limit },
+            timeout: 5000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+          if (res.data && res.data.length > 0) {
+            klines = res.data;
+            usedPair = binancePair;
+            console.log(`Found data: ${binancePair} from ${baseUrl}`);
+            break;
+          }
+        } catch (e) {
+          console.log(`${binancePair} from ${baseUrl} failed: ${e.message}`);
         }
-      } catch (e) {
-        console.log(`${binancePair} not found`);
       }
     }
 
     if (!klines || klines.length === 0) {
-      console.log(`No Binance data found for ${baseSymbol}`);
+      console.log(`No Binance data found for ${symbol} — trying fallback`);
       return null;
     }
 
@@ -117,11 +118,7 @@ const getTokenOHLCV = async (tokenAddress, timeframe = '1h') => {
       c: klines.map(k => parseFloat(k[4]))
     };
 
-    return {
-      pairAddress: pair.pairAddress,
-      pairName: usedPair,
-      ohlcv: formatted
-    };
+    return { pairAddress: pair.pairAddress, pairName: usedPair, ohlcv: formatted };
 
   } catch (error) {
     console.error('OHLCV error:', error.message);
